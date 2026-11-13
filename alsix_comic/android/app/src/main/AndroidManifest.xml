@@ -1,6 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application
-        android:label="alsix_comic"
+        android:label="Alsix Comic"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity

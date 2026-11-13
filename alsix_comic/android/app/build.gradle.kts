@@ -1,8 +1,20 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }
+
+// Release signing comes from key.properties (local, never committed) or from
+// the ALSIX_KEYSTORE_* environment variables set by CI from GitHub secrets.
+val keyProperties = Properties().apply {
+    val f = rootProject.file("key.properties")
+    if (f.exists()) f.inputStream().use { load(it) }
+}
+val keystorePath: String? =
+    System.getenv("ALSIX_KEYSTORE_PATH") ?: keyProperties.getProperty("storeFile")
+val hasReleaseKey = keystorePath != null && file(keystorePath).exists()
 
 android {
     namespace = "com.alsix.alsix_comic"
@@ -15,11 +27,10 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "com.alsix.alsix_comic"
+        applicationId = "com.alsix.comic"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = flutter.minSdkVersion
+        minSdk = 26
         targetSdk = flutter.targetSdkVersion
         // Uses the version code from pubspec.yaml. When using split APKs, 1000 * ABI_VERSION
         // is added automatically by Flutter. (https://developer.android.com/studio/build/configure-apk-splits#configure-APK-versions)
@@ -29,11 +40,22 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        if (hasReleaseKey) {
+            create("release") {
+                storeFile = file(keystorePath!!)
+                storePassword = System.getenv("ALSIX_KEYSTORE_PASSWORD")
+                    ?: keyProperties.getProperty("storePassword")
+                keyAlias = System.getenv("ALSIX_KEY_ALIAS") ?: keyProperties.getProperty("keyAlias")
+                keyPassword = System.getenv("ALSIX_KEY_PASSWORD")
+                    ?: keyProperties.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName(if (hasReleaseKey) "release" else "debug")
         }
     }
 }

@@ -1,0 +1,88 @@
+name: Alsix Comic
+
+on:
+  push:
+    paths:
+      - "alsix_comic/**"
+      - ".github/workflows/alsix-comic.yml"
+  workflow_dispatch:
+    inputs:
+      release:
+        description: "Publish the APK as a GitHub release"
+        type: boolean
+        default: false
+
+concurrency:
+  group: alsix-comic-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FLUTTER_VERSION: "3.50.0"
+
+defaults:
+  run:
+    working-directory: alsix_comic
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test
+
+  build-apk:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - name: Restore release keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ALSIX_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+            echo "ALSIX_KEYSTORE_PATH=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+            echo "Release keystore found."
+          else
+            echo "::warning::No ALSIX_KEYSTORE_BASE64 secret: APK is signed with a temporary debug key."
+          fi
+      - name: Build APK
+        env:
+          ALSIX_KEYSTORE_PASSWORD: ${{ secrets.ALSIX_KEYSTORE_PASSWORD }}
+          ALSIX_KEY_ALIAS: ${{ secrets.ALSIX_KEY_ALIAS }}
+          ALSIX_KEY_PASSWORD: ${{ secrets.ALSIX_KEY_PASSWORD }}
+        run: |
+          flutter build apk --release --build-number=${{ github.run_number }}
+          mv build/app/outputs/flutter-apk/app-release.apk "build/AlsixComic-${{ github.run_number }}.apk"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AlsixComic-apk
+          path: alsix_comic/build/AlsixComic-*.apk
+          retention-days: 30
+      - name: Publish release
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.release }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "alsix-comic-${{ github.run_number }}" build/AlsixComic-*.apk \
+            --title "Alsix Comic build ${{ github.run_number }}" \
+            --notes "Built from ${{ github.sha }}" \
+            --target "${{ github.sha }}"
+    permissions:
+      contents: write
