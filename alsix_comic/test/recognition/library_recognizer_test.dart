@@ -103,6 +103,25 @@ void main() {
     });
   });
 
+  group('manual folder roles', () {
+    test('a folder forced to be a series', () {
+      final r = recognizeLibrary(
+        entries(['长篇/HUNT/第一章 开始.pdf', '长篇/HUNT/第二章 追猎.pdf', '长篇/HUNT/结局.pdf']),
+        folderRoles: {'长篇/HUNT': FolderRole.series},
+      );
+      expect(r.series.single.title, 'HUNT');
+      expect(r.series.single.chapters, hasLength(3));
+    });
+
+    test('a folder forced to be a category', () {
+      final r = recognizeLibrary(
+        entries(['kaba/1.pdf', 'kaba/2.pdf', 'kaba/3.pdf']),
+        folderRoles: {'kaba': FolderRole.category},
+      );
+      expect(r.series.where((s) => s.title == 'kaba'), isEmpty);
+    });
+  });
+
   group('series merging', () {
     test('parts and numbers in order', () {
       final r = recognizeLibrary(

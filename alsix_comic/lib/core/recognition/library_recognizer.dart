@@ -29,6 +29,15 @@ class LibraryEntry {
 
 enum Confidence { high, medium, low }
 
+/// Manual folder role set by the user.
+enum FolderRole {
+  /// Everything inside the folder is one series named after the folder.
+  series,
+
+  /// A plain category: never turned into a series automatically.
+  category,
+}
+
 class RecognizedChapter {
   RecognizedChapter({
     required this.entry,
@@ -174,7 +183,50 @@ T? _mostCommon<T>(Iterable<T?> values) {
 ///
 /// The engine is deterministic and pure: the same input always gives the same
 /// output, which is what lets manual corrections be stored on top of it.
-RecognitionResult recognizeLibrary(List<LibraryEntry> entries) {
+RecognitionResult recognizeLibrary(
+  List<LibraryEntry> entries, {
+  Map<String, FolderRole> folderRoles = const {},
+}) {
+  final series = <RecognizedSeries>[];
+  final suggestions = <MergeSuggestion>[];
+
+  // ---- 0. Folders the user declared to be a series ----------------------
+  final forced =
+      folderRoles.entries
+          .where((e) => e.value == FolderRole.series)
+          .map((e) => e.key)
+          .toList()
+        ..sort((a, b) => b.length.compareTo(a.length)); // innermost first
+  if (forced.isNotEmpty) {
+    final rest = <LibraryEntry>[];
+    final byFolder = <String, List<LibraryEntry>>{};
+    for (final e in entries) {
+      final f = forced.where((d) => e.path.startsWith('$d/')).firstOrNull;
+      if (f == null) {
+        rest.add(e);
+      } else {
+        byFolder.putIfAbsent(f, () => []).add(e);
+      }
+    }
+    for (final MapEntry(key: dir, value: list) in byFolder.entries) {
+      final items = [for (final e in list) _Item(e, e.name, dir)];
+      final built = _buildSeries(items, Confidence.high);
+      final folderTitle = parseTitle(_dirName(dir));
+      series.add(
+        RecognizedSeries(
+          id: 'folder:$dir',
+          title: folderTitle.seriesTitle,
+          author: folderTitle.authors.firstOrNull ?? built.author,
+          circle: folderTitle.circle ?? built.circle,
+          chapters: built.chapters,
+          confidence: Confidence.high,
+          folder: dir,
+        ),
+      );
+    }
+    entries = rest;
+  }
+
   // ---- 1. Collapse wrapper folders -------------------------------------
   final byDir = <String, List<LibraryEntry>>{};
   for (final e in entries) {
@@ -211,12 +263,12 @@ RecognitionResult recognizeLibrary(List<LibraryEntry> entries) {
   for (final it in items) {
     itemsByGroupDir.putIfAbsent(it.groupDir, () => []).add(it);
   }
-  final series = <RecognizedSeries>[];
   final consumed = <_Item>{};
   for (final entry in itemsByGroupDir.entries) {
     final dir = entry.key;
     final list = entry.value;
     if (dir.isEmpty || list.length < 2) continue;
+    if (folderRoles[dir] == FolderRole.category) continue;
     final codes = list.where((i) => _isCodeName(i.name)).length;
     // At least two thirds code names: "1.pdf, 2.pdf, ql11.pdf".
     if (codes < 2 || codes * 3 < list.length * 2) continue;
@@ -278,7 +330,6 @@ RecognitionResult recognizeLibrary(List<LibraryEntry> entries) {
     }
   }
 
-  final suggestions = <MergeSuggestion>[];
   final sortedKeys = byKey.keys.toList()..sort();
   for (final key in sortedKeys) {
     final group = byKey[key]!;
